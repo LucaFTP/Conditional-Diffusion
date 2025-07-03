@@ -52,6 +52,8 @@ class Trainer:
 
         self.results_folder = Path(results_folder)
         self.results_folder.mkdir(exist_ok=True)
+        self.image_folder = self.results_folder / "ema_sampling"
+        self.image_folder.mkdir(exist_ok=True)
         self.save_best_and_latest_only = save_best_and_latest_only
         self.writer = SummaryWriter(results_folder)
 

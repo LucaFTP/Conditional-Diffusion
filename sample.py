@@ -20,16 +20,23 @@ def parse_arguments(parser: ArgumentParser) -> ArgumentParser:
         required=True,
     )
     parser.add_argument(
-        "-n",
-        "--num-samples",
-        help="The number of image to sample from the model",
+        "-m",
+        "--model-milestone",
+        help="The milestone of the model",
         type=int,
         required=True,
     )
     parser.add_argument(
-        "-m",
-        "--model-milestone",
-        help="The milestone of the model",
+        "-t",
+        "--type-of-output",
+        help="The type of output to save (default: 'png', options: 'npy', 'png'). According to the type, choose wisely the number of samples to generate.",
+        default="png",
+        choices=["npy", "png"],
+    )
+    parser.add_argument(
+        "-n",
+        "--num-samples",
+        help="The number of image to sample from the model",
         type=int,
         required=True,
     )
@@ -73,18 +80,15 @@ def main(command_line_args: Namespace) -> None:
         auto_normalize=diffusion_config.get("auto_normalize"),
     ).to(device)
 
-    # samples, sample_masses = diffusion_model.sample(batch_size=command_line_args.num_samples)
-    # save_img_grid(tensor_to_numpy(samples), tensor_to_numpy(sample_masses), model_name=config_file.get("model_name"), milestone=command_line_args.model_milestone, cbar=True)
-    from tqdm import tqdm
-    for i in tqdm(range(command_line_args.num_samples // 64), desc="Sampling images"):
-        samples, sample_masses = diffusion_model.sample(batch_size=64)
-        np.save(f"results/{config_file.get('model_name')}/samples-{command_line_args.model_milestone}-{i}.npy", tensor_to_numpy(samples))
-        np.save(f"results/{config_file.get('model_name')}/masses-{command_line_args.model_milestone}-{i}.npy", tensor_to_numpy(sample_masses))
-
-    '''
-    for ix, sample in enumerate(samples):
-        utils.save_image(sample, f"sample-{time.strftime('%Y-%m-%d-%s')}-{ix}.png")
-    '''
+    if command_line_args.type_of_output == "png":
+        samples, sample_masses = diffusion_model.sample(batch_size=command_line_args.num_samples)
+        save_img_grid(tensor_to_numpy(samples), tensor_to_numpy(sample_masses), model_name=config_file.get("model_name"), milestone=command_line_args.model_milestone, cbar=True)
+    if command_line_args.type_of_output == "npy":
+        from tqdm import tqdm
+        for i in tqdm(range(command_line_args.num_samples // 64), desc="Sampling images"):
+            samples, sample_masses = diffusion_model.sample(batch_size=64)
+            np.save(f"results/{config_file.get('model_name')}/samples-{command_line_args.model_milestone}-{i}.npy", tensor_to_numpy(samples))
+            np.save(f"results/{config_file.get('model_name')}/masses-{command_line_args.model_milestone}-{i}.npy", tensor_to_numpy(sample_masses))
 
 if __name__ == "__main__":
     main()
