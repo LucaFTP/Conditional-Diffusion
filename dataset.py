@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from torchvision import transforms as T
 from torch.utils.data import Dataset, DataLoader
+from torch.utils.data.distributed import DistributedSampler
 
 from gen_utils import dynamic_range_opt
     
@@ -49,21 +50,18 @@ class NpyDataset(Dataset):
       
 # Funzione per caricare il dataset e creare il DataLoader
 def create_dataloader(root_dir, dataset_config: dict):
-
     batch_size = dataset_config.get("batch_size", 32)
     img_size = dataset_config.get("img_size", 128)
     augment_horizontal_flip = dataset_config.get("augment_horizontal_flip", True)
-    shuffle = dataset_config.get("shuffle", True)
-    num_workers = dataset_config.get("num_workers", 1)
+    num_workers = len(os.sched_getaffinity(0))
 
-    # Definizione delle trasformazioni
     transform = T.Compose(
-            [
-                T.ToTensor(),
-                T.Resize(img_size),
-                T.RandomHorizontalFlip(p=0.5 if augment_horizontal_flip else 0.0),
-            ]
-        )
+        [
+            T.ToTensor(),
+            T.Resize(img_size),
+            T.RandomHorizontalFlip(p=0.5 if augment_horizontal_flip else 0.0),
+        ]
+    )
 
     dataset = NpyDataset(
         root_dir=root_dir,
@@ -71,13 +69,24 @@ def create_dataloader(root_dir, dataset_config: dict):
         epsilon=dataset_config.get("epsilon", 1e-6),
         mult_factor=dataset_config.get("mult_factor", 1.0),
         transform=transform
-        )
-    train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+    )
 
-    return train_loader
+    # Sampler per DDP
+    sampler = DistributedSampler(dataset) if torch.distributed.is_initialized() else None
+
+    train_loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=(sampler is None),
+        num_workers=num_workers,
+        sampler=sampler,
+        pin_memory=True
+    )
+
+    return dataset, sampler, train_loader
 
 if __name__ == "__main__":
-    train_loader = create_dataloader(
+    dataset, sampler, train_loader = create_dataloader(
         root_dir="/leonardo_scratch/fast/uTS25_Fontana/ALL_ROT_npy_version/1024x1024/",
         dataset_config={}
     )

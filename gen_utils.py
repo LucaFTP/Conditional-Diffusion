@@ -1,3 +1,4 @@
+import os
 import torch
 import numpy as np
 from typing import Any
@@ -5,7 +6,9 @@ from typing import Callable
 from argparse import ArgumentParser
 from matplotlib import pyplot as plt
 plt.style.use('dark_background')
+import torch.distributed
 from torch.utils.data import DataLoader
+from torch.distributed import init_process_group, destroy_process_group
 
 def normalize_to_neg_one_to_one(img: torch.Tensor) -> torch.Tensor:
     return img * 2 - 1
@@ -83,3 +86,14 @@ def parser(
         return new_function
 
     return decorator
+
+def ddp_setup():
+    init_process_group(backend="nccl")
+    torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
+
+def cleanup_ddp():
+    destroy_process_group()
+
+def print_rank_0(*args, **kwargs):
+    if int(os.environ["LOCAL_RANK"]) == 0:
+        print(*args, **kwargs)
