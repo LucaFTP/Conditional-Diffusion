@@ -114,7 +114,7 @@ class DiffusionModel(nn.Module):
         batch, device = shape[0], "cuda" if torch.cuda.is_available() else "cpu"
 
         img = torch.randn(shape, device=device)
-        mass = 10**(torch.rand((batch, 1, 1, 1), device=device))
+        mass = 1.5 * 10**(torch.rand((batch, 1, 1, 1), device=device))
         
         if self.verbose:
             for t in tqdm(reversed(range(0, self.num_timesteps)), total=self.num_timesteps):
@@ -126,12 +126,86 @@ class DiffusionModel(nn.Module):
                 img = img.detach()
 
         return self.unnormalize(img), mass
+    
+    @torch.inference_mode()
+    def ddim_sample(
+        self, x: torch.Tensor, mass: torch.Tensor, t: int, t_next: int, eta: float = 0.0
+    ) -> torch.Tensor:
+        b, *_, device = *x.shape, x.device
+        batched_t = torch.full((b,), t, device=device, dtype=torch.long)
+
+        eps = self.model(x, batched_t, mass)
+
+        alpha_t = extract(self.alphas_cumprod, batched_t, x.shape)
+        alpha_next = extract(
+            self.alphas_cumprod,
+            torch.full((b,), max(t_next, 0), device=device, dtype=torch.long),
+            x.shape,
+        )
+
+        x0_pred = (x - torch.sqrt(1 - alpha_t) * eps) / torch.sqrt(alpha_t)
+
+        sigma_t = eta * torch.sqrt(
+            (1 - alpha_t / alpha_next) * (1 - alpha_next) / (1 - alpha_t)
+        )
+
+        if eta > 0:
+            noise = torch.randn_like(x)
+        else:
+            noise = 0.0
+
+        img = (
+            torch.sqrt(alpha_next) * x0_pred
+            + torch.sqrt(1 - alpha_next - sigma_t**2) * eps
+            + sigma_t * noise
+        )
+        return img
+
+    @torch.inference_mode()
+    def ddim_sample_loop(
+        self,
+        shape: tuple,
+        num_steps: int = 50,
+        eta: float = 0.0
+    ) -> torch.Tensor:
+        """
+        DDIM sampling
+        Args:
+            shape: output shape (batch, C, H, W)
+            num_steps: number of sampling steps (<< self.num_timesteps)
+            eta: amount of stochasticity (0.0 = deterministic, >0 adds noise)
+        """
+        batch, device = shape[0], "cuda" if torch.cuda.is_available() else "cpu"
+
+        img = torch.randn(shape, device=device)
+        mass = 1.5 * 10**(torch.rand((batch, 1, 1, 1), device=device))
+
+        # step indices
+        step_size = self.num_timesteps // num_steps
+        times = list(range(0, self.num_timesteps, step_size))
+        times_next = [-1] + times[:-1]
+
+        if self.verbose:
+            for t, t_next in tqdm(list(zip(reversed(times), reversed(times_next))), total=num_steps):
+                img = self.ddim_sample(img, mass, t, t_next, eta)
+                img = img.detach()
+        else:
+            for t, t_next in list(zip(reversed(times), reversed(times_next))):
+                img = self.ddim_sample(img, mass, t, t_next, eta)
+                img = img.detach()
+
+        return self.unnormalize(img), mass
 
     def sample(
-        self, batch_size: int = 16
+        self, batch_size: int = 16, mode: str = "p"
     ) -> torch.Tensor:
         shape = (batch_size, self.channels, self.image_size, self.image_size)
-        return self.p_sample_loop(shape)
+        if mode == "p":
+            return self.p_sample_loop(shape)
+        elif mode == "ddim":
+            return self.ddim_sample_loop(shape)
+        else:
+            raise ValueError(f"Unknown mode: {mode}")
 
     def q_sample(
         self, x_start: torch.Tensor, t: int, noise: torch.Tensor = None

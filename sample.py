@@ -33,8 +33,8 @@ def parse_arguments(parser: ArgumentParser) -> ArgumentParser:
         required=True,
     )
     parser.add_argument(
-        "-t",
-        "--type-of-output",
+        "-o",
+        "--output-type",
         help="The type of output to save (default: 'png', options: 'npy', 'png'). According to the type, choose wisely the number of samples to generate.",
         default="png",
         choices=["npy", "png"],
@@ -45,6 +45,13 @@ def parse_arguments(parser: ArgumentParser) -> ArgumentParser:
         help="The number of image to sample from the model",
         type=int,
         required=True,
+    )
+    parser.add_argument(
+        "-t",
+        "--type-of-sampling",
+        help="The type of sampling to use (default: 'p', options: 'p' <probabilistic>, 'ddim' <implicit>)",
+        default="p",
+        choices=["p", "ddim"],
     )
     return parser
 
@@ -114,7 +121,7 @@ def main(command_line_args: Namespace) -> None:
 
         for i in tqdm(range(steps), desc=f"Rank {local_rank} sampling"):
             current_bs = batch_size if i < steps - 1 else samples_per_rank % batch_size or batch_size
-            samples, sample_masses = diffusion_model.sample(batch_size=current_bs)
+            samples, sample_masses = diffusion_model.sample(batch_size=current_bs, mode=command_line_args.type_of_sampling)
 
             np.save(f"{out_dir}/samples-{command_line_args.model_milestone}-rank{local_rank}-{i}.npy", tensor_to_numpy(samples))
             np.save(f"{out_dir}/masses-{command_line_args.model_milestone}-rank{local_rank}-{i}.npy", tensor_to_numpy(sample_masses))
