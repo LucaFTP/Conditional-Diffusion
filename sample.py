@@ -101,10 +101,10 @@ def main(command_line_args: Namespace) -> None:
         auto_normalize=diffusion_config.get("auto_normalize"),
     ).to(device)
 
-    if command_line_args.type_of_output == "png":
-        samples, sample_masses = diffusion_model.sample(batch_size=command_line_args.num_samples)
+    if command_line_args.output_type == "png":
+        samples, sample_masses = diffusion_model.sample(batch_size=command_line_args.num_samples, mode=command_line_args.type_of_sampling)
         save_img_grid(tensor_to_numpy(samples), tensor_to_numpy(sample_masses), model_name=config_file.get("model_name"), milestone=command_line_args.model_milestone, cbar=True)
-    if command_line_args.type_of_output == "npy":
+    if command_line_args.output_type == "npy":
         from tqdm import tqdm
         world_size = dist.get_world_size() if dist.is_initialized() else 1
 

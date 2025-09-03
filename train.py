@@ -61,6 +61,7 @@ def main(command_line_args: Namespace) -> None:
         timesteps=diffusion_config.get("timesteps"),
         auto_normalize=diffusion_config.get("auto_normalize"),
         verbose=False,
+        class_free_par=diffusion_config.get("class_free_par"),
     )
 
     use_ddp = torch.cuda.device_count() > 1 and "LOCAL_RANK" in os.environ
@@ -77,7 +78,7 @@ def main(command_line_args: Namespace) -> None:
         dataset_config=dataset_config,
         local_rank=local_rank,
         train_lr=trainer_config.get("train_lr"),
-        train_num_steps=trainer_config.get("train_num_steps"),
+        total_epochs=trainer_config.get("total_epochs"),
         save_and_sample_every=trainer_config.get("save_and_sample_every"),
         num_samples=trainer_config.get("num_samples"),
     )

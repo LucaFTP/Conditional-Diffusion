@@ -6,7 +6,7 @@ from typing import Callable
 from argparse import ArgumentParser
 from matplotlib import pyplot as plt
 plt.style.use('dark_background')
-import torch.distributed
+
 from torch.utils.data import DataLoader
 from torch.distributed import init_process_group, destroy_process_group
 
@@ -21,7 +21,6 @@ def dynamic_range_opt(array, epsilon=1e-6, mult_factor=1):
     a = np.log10(array)
     b = np.log10(1/epsilon)
     return a/b * mult_factor
-
 
 def identity(x: torch.Tensor) -> torch.Tensor:
     return x
@@ -50,10 +49,10 @@ def cycle(dl: DataLoader):
 def save_img_grid(
         img_batch:np.ndarray, masses:np.ndarray, model_name:str, milestone:int, cbar=False
         ):
-    img_batch = np.squeeze(img_batch)
+    img_batch  = np.squeeze(img_batch)
     mass_batch = np.log10(np.squeeze(masses)) + 13.8
     batch_size = img_batch.shape[0]
-    grid_size = int(np.sqrt(batch_size))
+    grid_size  = int(np.sqrt(batch_size))
 
     fig, axes = plt.subplots(grid_size, grid_size, figsize=(12, 12))
     for i in range(batch_size):

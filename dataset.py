@@ -49,7 +49,10 @@ class NpyDataset(Dataset):
         return image, mass_tensor
       
 # Funzione per caricare il dataset e creare il DataLoader
-def create_dataloader(root_dir, dataset_config: dict):
+def create_dataloader(
+        root_dir, dataset_config: dict
+        ) -> tuple[NpyDataset, DistributedSampler, DataLoader]:
+    
     batch_size = dataset_config.get("batch_size", 32)
     img_size = dataset_config.get("img_size", 128)
     augment_horizontal_flip = dataset_config.get("augment_horizontal_flip", True)
@@ -90,7 +93,7 @@ if __name__ == "__main__":
         root_dir="/leonardo_scratch/fast/uTS25_Fontana/ALL_ROT_npy_version/1024x1024/",
         dataset_config={}
     )
-    
+    print(f"Number of batches: {len(train_loader)}")
     for images, masses in train_loader:
         print(f"Images shape: {images.shape}")
         print(f"Mass condition: {masses.shape}")

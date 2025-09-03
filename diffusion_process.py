@@ -32,7 +32,8 @@ class DiffusionModel(nn.Module):
         timesteps: int = 1000,
         schedule_fn_kwargs: dict | None = None,
         auto_normalize: bool = True,
-        verbose: bool = True
+        verbose: bool = True,
+        class_free_par : dict = {}
     ) -> None:
         super().__init__()
         self.model = model
@@ -77,32 +78,44 @@ class DiffusionModel(nn.Module):
         self.normalize = normalize_to_neg_one_to_one if auto_normalize else identity
         self.unnormalize = unnormalize_to_zero_to_one if auto_normalize else identity
 
+        # Classifier free guidance parameters
+        self.null_condition  = class_free_par.get("null_condition", -5.0)
+        self.p_unconditioned = class_free_par.get("p_unconditioned", 0.1)
+        self.guidance_weight = class_free_par.get("guidance_weight", 2.0)
+
     @torch.inference_mode()
     def p_sample(self, x: torch.Tensor, timestamp: int, mass: torch.Tensor) -> torch.Tensor:
         b, *_, device = *x.shape, x.device
         batched_timestamps = torch.full(
-            (b,), timestamp, device=device, dtype=torch.long
+            (2*b,), timestamp, device=device, dtype=torch.long
         )
 
-        preds = self.model(x, batched_timestamps, mass)
+        x_cat = x.repeat(2, 1, 1, 1)
+        mass_cat = torch.cat([mass, torch.full_like(mass, self.null_condition)], dim=0)
 
-        betas_t = extract(self.betas, batched_timestamps, x.shape)
+        preds_cat = self.model(x_cat, batched_timestamps, mass_cat)
+        preds_cond, preds_uncond = preds_cat.chunk(2, dim=0)
+
+        eps = preds_uncond + self.guidance_weight * (preds_cond - preds_uncond)
+
+        t_batch = torch.full((b,), timestamp, device=device, dtype=torch.long)
+        betas_t = extract(self.betas, t_batch, x.shape)
         sqrt_recip_alphas_t = extract(
-            self.sqrt_recip_alphas, batched_timestamps, x.shape
+            self.sqrt_recip_alphas, t_batch, x.shape
         )
         sqrt_one_minus_alphas_cumprod_t = extract(
-            self.sqrt_one_minus_alphas_cumprod, batched_timestamps, x.shape
+            self.sqrt_one_minus_alphas_cumprod, t_batch, x.shape
         )
 
         predicted_mean = sqrt_recip_alphas_t * (
-            x - betas_t * preds / sqrt_one_minus_alphas_cumprod_t
+            x - betas_t * eps / sqrt_one_minus_alphas_cumprod_t
         )
 
         if timestamp == 0:
             return predicted_mean
         else:
             posterior_variance = extract(
-                self.posterior_variance, batched_timestamps, x.shape
+                self.posterior_variance, t_batch, x.shape
             )
             noise = torch.randn_like(x)
             return predicted_mean + torch.sqrt(posterior_variance) * noise
@@ -114,16 +127,14 @@ class DiffusionModel(nn.Module):
         batch, device = shape[0], "cuda" if torch.cuda.is_available() else "cpu"
 
         img = torch.randn(shape, device=device)
-        mass = 1.5 * 10**(torch.rand((batch, 1, 1, 1), device=device))
-        
-        if self.verbose:
-            for t in tqdm(reversed(range(0, self.num_timesteps)), total=self.num_timesteps):
+        mass = 10**(torch.rand((batch, 1, 1, 1), device=device))
+
+        iterator = reversed(range(0, self.num_timesteps))
+        if self.verbose: iterator = tqdm(iterator, total=self.num_timesteps)
+
+        with torch.no_grad():
+            for t in iterator:
                 img = self.p_sample(img, t, mass)
-                img = img.detach()
-        else:
-            for t in reversed(range(0, self.num_timesteps)):
-                img = self.p_sample(img, t, mass)
-                img = img.detach()
 
         return self.unnormalize(img), mass
     
@@ -132,31 +143,56 @@ class DiffusionModel(nn.Module):
         self, x: torch.Tensor, mass: torch.Tensor, t: int, t_next: int, eta: float = 0.0
     ) -> torch.Tensor:
         b, *_, device = *x.shape, x.device
-        batched_t = torch.full((b,), t, device=device, dtype=torch.long)
-
-        eps = self.model(x, batched_t, mass)
-
-        alpha_t = extract(self.alphas_cumprod, batched_t, x.shape)
-        alpha_next = extract(
-            self.alphas_cumprod,
-            torch.full((b,), max(t_next, 0), device=device, dtype=torch.long),
-            x.shape,
+        batched_timestamps = torch.full(
+            (2*b,), t, device=device, dtype=torch.long
         )
 
-        x0_pred = (x - torch.sqrt(1 - alpha_t) * eps) / torch.sqrt(alpha_t)
+        x_cat = x.repeat(2, 1, 1, 1)
+        mass_cat = torch.cat([mass, torch.full_like(mass, self.null_condition)], dim=0)
 
-        sigma_t = eta * torch.sqrt(
-            (1 - alpha_t / alpha_next) * (1 - alpha_next) / (1 - alpha_t)
+        preds_cat = self.model(x_cat, batched_timestamps, mass_cat)
+        preds_cond, preds_uncond = preds_cat.chunk(2, dim=0)
+
+        eps = preds_uncond + self.guidance_weight * (preds_cond - preds_uncond)
+
+        t_batch = torch.full((b,), t, device=device, dtype=torch.long)
+        t_next_batch = torch.full((b,), max(int(t_next), 0), device=device, dtype=torch.long)
+
+        alpha_bar_t = extract(self.alphas_cumprod, t_batch, x.shape)
+        sqrt_alphas_cumprod = extract(
+            self.sqrt_alphas_cumprod, t_batch, x.shape
+        )
+        sqrt_one_minus_alphas_cumprod_t = extract(
+            self.sqrt_one_minus_alphas_cumprod, t_batch, x.shape
         )
 
-        if eta > 0:
-            noise = torch.randn_like(x)
+        x0_pred = (x - sqrt_one_minus_alphas_cumprod_t * eps) / sqrt_alphas_cumprod
+
+        if t_next < 0:
+            alpha_bar_next = torch.ones_like(alpha_bar_t)
         else:
-            noise = 0.0
+            alpha_bar_next = extract(self.alphas_cumprod, t_next_batch, x.shape)
+            
+
+
+        with open("output.txt", "a") as f:
+            f.write(f"t: {t}, t_next: {t_next}, eta: {eta}\n")
+            f.write(f"alpha_bar_t: {alpha_bar_t}, alpha_bar_next: {alpha_bar_next}\n\n")
+
+
+
+        if eta == 0 or t_next < 0:
+            sigma_t = torch.zeros_like(alpha_bar_t)
+            noise = torch.zeros_like(x)
+        else:
+            sigma_t = eta * torch.sqrt(
+                torch.clamp((1 - alpha_bar_t / alpha_bar_next) * (1 - alpha_bar_next) / (1 - alpha_bar_t), min=0.0)
+            )
+            noise = torch.randn_like(x)
 
         img = (
-            torch.sqrt(alpha_next) * x0_pred
-            + torch.sqrt(1 - alpha_next - sigma_t**2) * eps
+            torch.sqrt(alpha_bar_next) * x0_pred
+            + torch.sqrt(torch.clamp(1 - alpha_bar_next - sigma_t**2, min=0.0)) * eps
             + sigma_t * noise
         )
         return img
@@ -180,19 +216,15 @@ class DiffusionModel(nn.Module):
         img = torch.randn(shape, device=device)
         mass = 1.5 * 10**(torch.rand((batch, 1, 1, 1), device=device))
 
-        # step indices
-        step_size = self.num_timesteps // num_steps
-        times = list(range(0, self.num_timesteps, step_size))
+        times = torch.linspace(0, self.num_timesteps-1, steps=num_steps).long().tolist()
         times_next = [-1] + times[:-1]
 
-        if self.verbose:
-            for t, t_next in tqdm(list(zip(reversed(times), reversed(times_next))), total=num_steps):
+        iterator = zip(reversed(times), reversed(times_next))
+        if self.verbose: iterator = tqdm(iterator, total=num_steps)
+        
+        with torch.no_grad():
+            for t, t_next in iterator:
                 img = self.ddim_sample(img, mass, t, t_next, eta)
-                img = img.detach()
-        else:
-            for t, t_next in list(zip(reversed(times), reversed(times_next))):
-                img = self.ddim_sample(img, mass, t, t_next, eta)
-                img = img.detach()
 
         return self.unnormalize(img), mass
 
@@ -247,4 +279,8 @@ class DiffusionModel(nn.Module):
 
         timestamps = torch.randint(0, self.num_timesteps, (b,), device=device).long()
         x = self.normalize(x)
+
+        if torch.rand((1,)) < self.p_unconditioned:
+            mass = torch.full_like(mass, self.null_condition)
+
         return self.p_loss(x, timestamps, mass)
