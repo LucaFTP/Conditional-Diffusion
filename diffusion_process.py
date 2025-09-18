@@ -172,14 +172,6 @@ class DiffusionModel(nn.Module):
             alpha_bar_next = torch.ones_like(alpha_bar_t)
         else:
             alpha_bar_next = extract(self.alphas_cumprod, t_next_batch, x.shape)
-            
-
-
-        with open("output.txt", "a") as f:
-            f.write(f"t: {t}, t_next: {t_next}, eta: {eta}\n")
-            f.write(f"alpha_bar_t: {alpha_bar_t}, alpha_bar_next: {alpha_bar_next}\n\n")
-
-
 
         if eta == 0 or t_next < 0:
             sigma_t = torch.zeros_like(alpha_bar_t)

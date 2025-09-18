@@ -19,7 +19,7 @@ class Trainer:
         self,
         diffusion_model: DiffusionModel,
         folder: str,
-        results_folder: str,
+        model_name: str,
         dataset_config: dict,
         local_rank: int,
         *,
@@ -52,10 +52,12 @@ class Trainer:
         self.start_epoch = 1
         self.total_epochs = total_epochs
 
-        self.results_folder = Path(results_folder)
+        self.results_folder = Path(f'./results/{model_name}')
         self.results_folder.mkdir(exist_ok=True)
         self.image_folder = self.results_folder / "ema_sampling"
         self.image_folder.mkdir(exist_ok=True)
+        self.checkpoint_folder = Path(f"/leonardo_work/uTS25_Fontana/Diffusion_ckpt/{model_name}")
+        self.checkpoint_folder.mkdir(exist_ok=True)
         self.num_samples = num_samples
         self.save_and_sample_every = save_and_sample_every
         self.save_best_and_latest_only = save_best_and_latest_only
@@ -72,11 +74,11 @@ class Trainer:
             "ema": self.ema.state_dict(),
             "version": "1.0",
         }
-        torch.save(data, str(self.results_folder / f"model-{milestone}.pt"))
+        torch.save(data, str(self.checkpoint_folder / f"model-{milestone}.pt"))
 
     def load(self, milestone: int) -> None:
         map_location = {f"cuda:{i}": f"cuda:{self.local_rank}" for i in range(torch.cuda.device_count())}
-        data = torch.load(str(self.results_folder / f"model-{milestone}.pt"), map_location=map_location)
+        data = torch.load(str(self.checkpoint_folder / f"model-{milestone}.pt"), map_location=map_location)
 
         self.d_model.module.model.load_state_dict(data["model"])
         self.start_epoch = data["epoch"]

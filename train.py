@@ -74,7 +74,7 @@ def main(command_line_args: Namespace) -> None:
     trainer = Trainer(
         diffusion_model=diffusion_model,
         folder="/leonardo_scratch/fast/uTS25_Fontana/ALL_ROT_npy_version/1024x1024/",
-        results_folder=f'./results/{config_file.get("model_name")}',
+        model_name=config_file.get("model_name"),
         dataset_config=dataset_config,
         local_rank=local_rank,
         train_lr=trainer_config.get("train_lr"),
