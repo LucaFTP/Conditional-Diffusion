@@ -131,92 +131,94 @@ class DiffusionModel(nn.Module):
 
         iterator = reversed(range(0, self.num_timesteps))
         if self.verbose: iterator = tqdm(iterator, total=self.num_timesteps)
-
-        with torch.no_grad():
-            for t in iterator:
-                img = self.p_sample(img, t, mass)
+        
+        for t in iterator:
+            img = self.p_sample(img, t, mass)
 
         return self.unnormalize(img), mass
     
     @torch.inference_mode()
-    def ddim_sample(
-        self, x: torch.Tensor, mass: torch.Tensor, t: int, t_next: int, eta: float = 0.0
-    ) -> torch.Tensor:
-        b, *_, device = *x.shape, x.device
-        batched_timestamps = torch.full(
-            (2*b,), t, device=device, dtype=torch.long
-        )
-
-        x_cat = x.repeat(2, 1, 1, 1)
-        mass_cat = torch.cat([mass, torch.full_like(mass, self.null_condition)], dim=0)
-
-        preds_cat = self.model(x_cat, batched_timestamps, mass_cat)
-        preds_cond, preds_uncond = preds_cat.chunk(2, dim=0)
-
-        eps = preds_uncond + self.guidance_weight * (preds_cond - preds_uncond)
-
-        t_batch = torch.full((b,), t, device=device, dtype=torch.long)
-        t_next_batch = torch.full((b,), max(int(t_next), 0), device=device, dtype=torch.long)
-
-        alpha_bar_t = extract(self.alphas_cumprod, t_batch, x.shape)
-        sqrt_alphas_cumprod = extract(
-            self.sqrt_alphas_cumprod, t_batch, x.shape
-        )
-        sqrt_one_minus_alphas_cumprod_t = extract(
-            self.sqrt_one_minus_alphas_cumprod, t_batch, x.shape
-        )
-
-        x0_pred = (x - sqrt_one_minus_alphas_cumprod_t * eps) / sqrt_alphas_cumprod
-
-        if t_next < 0:
-            alpha_bar_next = torch.ones_like(alpha_bar_t)
-        else:
-            alpha_bar_next = extract(self.alphas_cumprod, t_next_batch, x.shape)
-
-        if eta == 0 or t_next < 0:
-            sigma_t = torch.zeros_like(alpha_bar_t)
-            noise = torch.zeros_like(x)
-        else:
-            sigma_t = eta * torch.sqrt(
-                torch.clamp((1 - alpha_bar_t / alpha_bar_next) * (1 - alpha_bar_next) / (1 - alpha_bar_t), min=0.0)
-            )
-            noise = torch.randn_like(x)
-
-        img = (
-            torch.sqrt(alpha_bar_next) * x0_pred
-            + torch.sqrt(torch.clamp(1 - alpha_bar_next - sigma_t**2, min=0.0)) * eps
-            + sigma_t * noise
-        )
-        return img
-
-    @torch.inference_mode()
-    def ddim_sample_loop(
-        self,
-        shape: tuple,
-        num_steps: int = 50,
-        eta: float = 0.0
-    ) -> torch.Tensor:
+    def dpm_solver_step(self, x, t, s, mass, order=2):
         """
-        DDIM sampling
-        Args:
-            shape: output shape (batch, C, H, W)
-            num_steps: number of sampling steps (<< self.num_timesteps)
-            eta: amount of stochasticity (0.0 = deterministic, >0 adds noise)
+        Executes one step of DPM-Solver (1° o 2° ordine).
+        x: current image
+        t: current timestep (index in self.alphas_cumprod)
+        s: next timestep (smaller than t)
+        mass: conditioning
+        order: order of the solver (1 or 2)
+        """
+        b, device = x.shape[0], x.device
+        t_batch = torch.full((b,), t, device=device, dtype=torch.long)
+        s_batch = torch.full((b,), s, device=device, dtype=torch.long)
+
+        # log alphas
+        at  = extract(self.alphas_cumprod, t_batch, x.shape)  # α_t_bar
+        as_ = extract(self.alphas_cumprod, s_batch, x.shape)  # α_s_bar
+        log_at = torch.log(at)
+        log_as = torch.log(as_)
+
+        x_in = x.repeat(2,1,1,1)
+        mass_in = torch.cat([mass, torch.full_like(mass, self.null_condition)], dim=0)
+        t_in = torch.full((2*b,), t, device=device, dtype=torch.long)
+
+        preds = self.model(x_in, t_in, mass_in)
+        eps_cond, eps_uncond = preds.chunk(2, dim=0)
+        eps = eps_uncond + self.guidance_weight * (eps_cond - eps_uncond)
+
+        # x0 and derivative prediction
+        x0_pred = (x - torch.sqrt(1 - at) * eps) / torch.sqrt(at)
+        # d_cur = (torch.sqrt(1 - at) * eps) / torch.sqrt(at)
+
+        if order == 1 or s == 0:
+            # DPM-Solver-1
+            x_next = torch.sqrt(as_) * x0_pred + torch.sqrt(1 - as_) * eps
+            return x_next
+
+        elif order == 2:
+            # DPM-Solver-2 (second order)
+            # intermediate prediction at half logSNR
+            log_h = log_as - log_at
+            log_mid = log_at + 0.5 * log_h
+            a_mid = torch.exp(log_mid)
+
+            x_mid = torch.sqrt(a_mid) * x0_pred + torch.sqrt(1 - a_mid) * eps
+
+            # prediction of eps at mid-point
+            x_in = x_mid.repeat(2,1,1,1)
+            mass_in = torch.cat([mass, torch.full_like(mass, self.null_condition)], dim=0)
+            t_in = torch.full((2*b,), (t+s)//2, device=device, dtype=torch.long)
+
+            preds_mid = self.model(x_in, t_in, mass_in)
+            eps_cond_mid, eps_uncond_mid = preds_mid.chunk(2, dim=0)
+            eps_mid = eps_uncond_mid + self.guidance_weight * (eps_cond_mid - eps_uncond_mid)
+
+            # final estimate
+            x0_pred_mid = (x_mid - torch.sqrt(1 - a_mid) * eps_mid) / torch.sqrt(a_mid)
+            x_next = torch.sqrt(as_) * x0_pred_mid + torch.sqrt(1 - as_) * eps_mid
+            return x_next
+
+        else:
+            raise ValueError("order must be 1 or 2")
+        
+    @torch.inference_mode()
+    def sample_dpm_solver(self, shape, steps=20, order=2):
+        """
+        Sampling with DPM-Solver.
+        shape: (batch, channels, H, W)
+        steps: number of steps (e.g. 20 or 50)
+        order: order of the solver (1 or 2)
         """
         batch, device = shape[0], "cuda" if torch.cuda.is_available() else "cpu"
-
         img = torch.randn(shape, device=device)
-        mass = 1.5 * 10**(torch.rand((batch, 1, 1, 1), device=device))
+        mass = 10**(torch.rand((batch, 1, 1, 1), device=device))
 
-        times = torch.linspace(0, self.num_timesteps-1, steps=num_steps).long().tolist()
-        times_next = [-1] + times[:-1]
+        # scegli step in log-space (più stabili per cosine/sigmoid)
+        seq = torch.linspace(0, self.num_timesteps-1, steps, dtype=int)
+        seq = list(reversed(seq))
 
-        iterator = zip(reversed(times), reversed(times_next))
-        if self.verbose: iterator = tqdm(iterator, total=num_steps)
-        
-        with torch.no_grad():
-            for t, t_next in iterator:
-                img = self.ddim_sample(img, mass, t, t_next, eta)
+        for i in tqdm(range(len(seq)-1)):
+            t, s = seq[i], seq[i+1]
+            img = self.dpm_solver_step(img, t, s, mass, order=order)
 
         return self.unnormalize(img), mass
 
@@ -227,7 +229,7 @@ class DiffusionModel(nn.Module):
         if mode == "p":
             return self.p_sample_loop(shape)
         elif mode == "ddim":
-            return self.ddim_sample_loop(shape)
+            return self.sample_dpm_solver(shape, steps=100, order=2)
         else:
             raise ValueError(f"Unknown mode: {mode}")
 

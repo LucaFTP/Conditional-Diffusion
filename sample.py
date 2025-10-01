@@ -81,7 +81,7 @@ def main(command_line_args: Namespace) -> None:
     device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
 
     checkpoint = torch.load(
-        str(f"./results/{config_file.get('model_name')}/model-{command_line_args.model_milestone}.pt"),
+        str(f"/leonardo_work/uTS25_Fontana/Diffusion_ckpt/{config_file.get('model_name')}/model-{command_line_args.model_milestone}.pt"),
         map_location=device,
     )
     model = AttentionUNet(
