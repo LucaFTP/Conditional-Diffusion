@@ -25,7 +25,7 @@ class NpyDataset(Dataset):
         if not os.path.exists(root_dir):
             raise FileNotFoundError(f"The directory {root_dir} does not exist.")
         
-        # Filtra i file npy in base al redshift
+        # Filter data according to redshift
         self.npy_files = []
         for f in os.listdir(root_dir):
             reds = float(f.split("reds=")[1][0:4])
@@ -48,8 +48,8 @@ class NpyDataset(Dataset):
         mass_tensor = torch.tensor(10**(mass - 13.8), dtype=torch.float32)
 
         return image, mass_tensor
-      
-# Funzione per caricare il dataset e creare il DataLoader
+
+# Function to load the dataset and create the DataLoader
 def create_dataloader(
         root_dir, dataset_config: dict
         ) -> tuple[NpyDataset, DistributedSampler, DataLoader]:
@@ -75,7 +75,7 @@ def create_dataloader(
         transform=transform
     )
 
-    # Sampler per DDP
+    # Sampler for DDP
     sampler = DistributedSampler(dataset) if torch.distributed.is_initialized() else None
 
     train_loader = DataLoader(
