@@ -93,6 +93,12 @@ def ddp_setup():
 def cleanup_ddp():
     destroy_process_group()
 
+def get_rank():
+    return int(os.environ.get("RANK", 0))
+
+def is_rank_0():
+    return get_rank() == 0
+
 def print_rank_0(*args, **kwargs):
-    if int(os.environ["LOCAL_RANK"]) == 0:
+    if is_rank_0():
         print(*args, **kwargs)

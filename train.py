@@ -1,6 +1,7 @@
 import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'    # Suppress TensorFlow warnings
+
 import json
-import torch
 from argparse import ArgumentParser, Namespace
 
 from trainer import Trainer
@@ -64,7 +65,7 @@ def main(command_line_args: Namespace) -> None:
         class_free_par=diffusion_config.get("class_free_par"),
     )
 
-    use_ddp = torch.cuda.device_count() > 1 and "LOCAL_RANK" in os.environ
+    use_ddp = "WORLD_SIZE" in os.environ and int(os.environ["WORLD_SIZE"]) > 1
     if use_ddp:
         ddp_setup()
         local_rank = int(os.environ["LOCAL_RANK"])
@@ -73,7 +74,7 @@ def main(command_line_args: Namespace) -> None:
     
     trainer = Trainer(
         diffusion_model=diffusion_model,
-        folder="/leonardo_scratch/fast/uTS25_Fontana/ALL_ROT_npy_version/1024x1024/",
+        folder="/leonardo_scratch/fast/uTS25_Fontana/redshift_zero_folder/",
         model_name=config_file.get("model_name"),
         dataset_config=dataset_config,
         local_rank=local_rank,

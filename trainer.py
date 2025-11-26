@@ -10,9 +10,9 @@ from torch.utils.tensorboard import SummaryWriter
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from gen_utils import print_rank_0
 from dataset import create_dataloader
 from diffusion_process import DiffusionModel
+from gen_utils import is_rank_0, print_rank_0
 
 class Trainer:
     def __init__(
@@ -61,15 +61,18 @@ class Trainer:
         self.num_samples = num_samples
         self.save_and_sample_every = save_and_sample_every
         self.save_best_and_latest_only = save_best_and_latest_only
-        self.writer = SummaryWriter(str(self.results_folder)) if dist.get_rank() == 0 else None
+        rank = dist.get_rank() if dist.is_initialized() else 0
+        self.writer = SummaryWriter(str(self.results_folder)) if rank == 0 else None
 
     def save(self, milestone: int) -> None:
-        if dist.get_rank() != 0:
+        if dist.is_initialized() and not is_rank_0():
             return
 
+        model = self.d_model.module if hasattr(self.d_model, "module") else self.d_model
+        
         data = {
             "epoch": milestone * self.save_and_sample_every,
-            "model": self.d_model.module.model.state_dict(),
+            "model": model.model.state_dict(),
             "opt": self.opt.state_dict(),
             "ema": self.ema.state_dict(),
             "version": "1.0",
@@ -77,10 +80,17 @@ class Trainer:
         torch.save(data, str(self.checkpoint_folder / f"model-{milestone}.pt"))
 
     def load(self, milestone: int) -> None:
-        map_location = {f"cuda:{i}": f"cuda:{self.local_rank}" for i in range(torch.cuda.device_count())}
-        data = torch.load(str(self.checkpoint_folder / f"model-{milestone}.pt"), map_location=map_location)
-
-        self.d_model.module.model.load_state_dict(data["model"])
+        checkpoint_path = self.checkpoint_folder / f"model-{milestone}.pt"
+        if torch.cuda.is_available():
+            map_location = {
+                f"cuda:{i}": f"cuda:{self.local_rank}" for i in range(torch.cuda.device_count())
+                }
+        else:
+            map_location = "cpu"
+        data = torch.load(str(checkpoint_path), map_location=map_location)
+        unet = self.d_model.model.module if hasattr(self.d_model, "module") else self.d_model.model
+        
+        unet.load_state_dict(data["model"])
         self.start_epoch = data["epoch"]
         self.opt.load_state_dict(data["opt"])
         self.ema.load_state_dict(data["ema"])
@@ -90,7 +100,7 @@ class Trainer:
 
     def train(self) -> None:
         try:
-            pbar = tqdm(initial=self.start_epoch, total=self.total_epochs, disable=dist.get_rank() != 0)
+            pbar = tqdm(initial=self.start_epoch, total=self.total_epochs, disable=not is_rank_0())
             for epoch in range(self.start_epoch, self.total_epochs+1):
                 self.dl_sampler.set_epoch(epoch)
                 epoch_loss = 0.0
@@ -109,7 +119,7 @@ class Trainer:
 
                     self.ema.update()
 
-                if dist.get_rank() == 0:
+                if is_rank_0():
                     self.writer.add_scalar("Loss/train", epoch_loss / len(self.dl), epoch)
 
                     if epoch % self.save_and_sample_every == 0:
