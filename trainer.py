@@ -88,7 +88,7 @@ class Trainer:
         else:
             map_location = "cpu"
         data = torch.load(str(checkpoint_path), map_location=map_location)
-        unet = self.d_model.model.module if hasattr(self.d_model, "module") else self.d_model.model
+        unet = self.d_model.module.model if hasattr(self.d_model, "module") else self.d_model.model
         
         unet.load_state_dict(data["model"])
         self.start_epoch = data["epoch"]
