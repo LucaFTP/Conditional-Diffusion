@@ -14,6 +14,7 @@ from gen_utils import (
     cleanup_ddp
 )
 
+from ema_pytorch import EMA
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 
@@ -62,6 +63,8 @@ def parse_arguments(parser: ArgumentParser) -> ArgumentParser:
 )
 def main(command_line_args: Namespace) -> None:
 
+    # torch.manual_seed(2312)
+
     if not os.path.isfile(command_line_args.config_filepath):
         raise FileNotFoundError(command_line_args.config_filepath)
 
@@ -88,10 +91,8 @@ def main(command_line_args: Namespace) -> None:
         dim=unet_config.get("input"),
         channels=unet_config.get("channels"),
         dim_mults=tuple(unet_config.get("dim_mults")),
-    ).to(device)
+    )
     model.load_state_dict(checkpoint["model"])
-    if dist.is_initialized():
-        model = DDP(model, device_ids=[local_rank], output_device=local_rank)
 
     diffusion_model = DiffusionModel(
         model.module if isinstance(model, DDP) else model,
@@ -101,8 +102,11 @@ def main(command_line_args: Namespace) -> None:
         auto_normalize=diffusion_config.get("auto_normalize"),
     ).to(device)
 
+    ema = EMA(diffusion_model, beta=0.995).to(device)
+    ema.load_state_dict(checkpoint["ema"])
+
     if command_line_args.output_type == "png":
-        samples, sample_masses = diffusion_model.sample(batch_size=command_line_args.num_samples, mode=command_line_args.type_of_sampling)
+        samples, sample_masses = ema.ema_model.sample(batch_size=command_line_args.num_samples, mode=command_line_args.type_of_sampling)
         save_img_grid(tensor_to_numpy(samples), tensor_to_numpy(sample_masses), model_name=config_file.get("model_name"), milestone=command_line_args.model_milestone, cbar=True)
     if command_line_args.output_type == "npy":
         from tqdm import tqdm
@@ -120,8 +124,16 @@ def main(command_line_args: Namespace) -> None:
         os.makedirs(out_dir, exist_ok=True)
 
         for i in tqdm(range(steps), desc=f"Rank {local_rank} sampling"):
-            current_bs = batch_size if i < steps - 1 else samples_per_rank % batch_size or batch_size
-            samples, sample_masses = diffusion_model.sample(batch_size=current_bs, mode=command_line_args.type_of_sampling)
+            if i < steps - 1:
+                current_bs = batch_size
+            else:
+                remainder = samples_per_rank % batch_size
+                current_bs = remainder if remainder > 0 else batch_size
+
+            samples, sample_masses = ema.ema_model.sample(
+                batch_size=current_bs,
+                mode=command_line_args.type_of_sampling
+                )
 
             np.save(f"{out_dir}/samples-{command_line_args.model_milestone}-rank{local_rank}-{i}.npy", tensor_to_numpy(samples))
             np.save(f"{out_dir}/masses-{command_line_args.model_milestone}-rank{local_rank}-{i}.npy", tensor_to_numpy(sample_masses))
