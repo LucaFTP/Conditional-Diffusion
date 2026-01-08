@@ -4,10 +4,10 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'    # Suppress TensorFlow warnings
 import json
 from argparse import ArgumentParser, Namespace
 
-from trainer import Trainer
-from u_net import AttentionUNet
-from diffusion_process import DiffusionModel
-from gen_utils import (
+from sz_diffusion.trainer import Trainer
+from sz_diffusion.u_net import AttentionUNet
+from sz_diffusion.diffusion_process import DiffusionModel
+from sz_diffusion.gen_utils import (
     parser,
     ddp_setup,
     cleanup_ddp,

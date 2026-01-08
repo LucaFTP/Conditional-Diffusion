@@ -4,9 +4,9 @@ import torch
 import numpy as np
 from argparse import ArgumentParser, Namespace
 
-from u_net import AttentionUNet
-from diffusion_process import DiffusionModel
-from gen_utils import (
+from sz_diffusion.u_net import AttentionUNet
+from sz_diffusion.diffusion_process import DiffusionModel
+from sz_diffusion.gen_utils import (
     parser,
     save_img_grid,
     tensor_to_numpy,

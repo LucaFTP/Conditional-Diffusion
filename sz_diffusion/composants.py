@@ -4,7 +4,7 @@ import torch.nn as nn
 from einops import rearrange
 from einops.layers.torch import Rearrange
 
-from gen_utils import default
+from sz_diffusion.gen_utils import default
 
 
 class DownSample(nn.Module):

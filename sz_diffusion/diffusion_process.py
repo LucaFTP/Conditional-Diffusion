@@ -4,12 +4,12 @@ import torch
 import torch.nn as nn
 from torch.functional import F
 
-from schedulers import (
+from sz_diffusion.schedulers import (
     linear_beta_schedule,
     cosine_beta_schedule,
     sigmoid_beta_schedule,
 )
-from gen_utils import (
+from sz_diffusion.gen_utils import (
     identity,
     normalize_to_neg_one_to_one,
     unnormalize_to_zero_to_one,
@@ -127,7 +127,9 @@ class DiffusionModel(nn.Module):
         batch, device = shape[0], "cuda" if torch.cuda.is_available() else "cpu"
 
         img = torch.randn(shape, device=device)
-        mass = 10**(torch.rand((batch, 1, 1, 1), device=device))
+        mass = 10 ** ( torch.rand(
+            (batch, 1, 1, 1), dtype=torch.float32, device=device
+            ) * (15.2 - 13.8) )
 
         iterator = reversed(range(0, self.num_timesteps))
         if self.verbose: iterator = tqdm(iterator, total=self.num_timesteps)
@@ -210,7 +212,9 @@ class DiffusionModel(nn.Module):
         """
         batch, device = shape[0], "cuda" if torch.cuda.is_available() else "cpu"
         img = torch.randn(shape, device=device)
-        mass = 10**(torch.rand((batch, 1, 1, 1), device=device))
+        mass = 10 ** ( torch.rand(
+            (batch, 1, 1, 1), dtype=torch.float32, device=device
+            ) * (15.2 - 13.8) + 13.8 )
 
         # scegli step in log-space (più stabili per cosine/sigmoid)
         seq = torch.linspace(0, self.num_timesteps-1, steps, dtype=int)

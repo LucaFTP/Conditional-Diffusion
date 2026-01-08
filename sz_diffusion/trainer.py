@@ -10,9 +10,9 @@ from torch.utils.tensorboard import SummaryWriter
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from dataset import create_dataloader
-from diffusion_process import DiffusionModel
-from gen_utils import is_rank_0, print_rank_0
+from sz_diffusion.dataset import create_dataloader
+from sz_diffusion.diffusion_process import DiffusionModel
+from sz_diffusion.gen_utils import is_rank_0, print_rank_0
 
 class Trainer:
     def __init__(

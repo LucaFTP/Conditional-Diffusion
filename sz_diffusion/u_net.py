@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
 
-from gen_utils import default
-from composants import (
+from sz_diffusion.gen_utils import default
+from sz_diffusion.composants import (
     Upsample, 
     DownSample, 
     ConvNextBlock, 

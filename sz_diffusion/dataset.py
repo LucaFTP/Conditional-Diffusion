@@ -6,7 +6,7 @@ from torchvision import transforms as T
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
-from gen_utils import dynamic_range_opt
+from sz_diffusion.gen_utils import dynamic_range_opt
     
 class NpyDataset(Dataset):
     def __init__(
@@ -28,8 +28,10 @@ class NpyDataset(Dataset):
         # Filter data according to redshift
         self.npy_files = []
         for f in os.listdir(root_dir):
-            reds = float(f.split("reds=")[1][0:4])
-            if 0.2 < reds <= self.reds_threshold:
+            if not f.endswith('.npy'):
+                continue
+            reds = float(f.split("reds=")[1][0:3])
+            if reds <= self.reds_threshold:
                 self.npy_files.append(f)
 
     def __len__(self):
@@ -38,7 +40,7 @@ class NpyDataset(Dataset):
     def __getitem__(self, idx):
         img_name = os.path.join(self.root_dir, self.npy_files[idx])
         image = np.load(img_name)
-        image = image[362:662, 332:662]
+        # image = image[362:662, 332:662]
         image = dynamic_range_opt(image, epsilon=self.epsilon, mult_factor=self.mult_factor)
 
         if self.transform:
@@ -91,7 +93,7 @@ def create_dataloader(
 
 if __name__ == "__main__":
     dataset, sampler, train_loader = create_dataloader(
-        root_dir="/leonardo_scratch/fast/uTS25_Fontana/ALL_ROT_npy_version/1024x1024/",
+        root_dir="/leonardo_scratch/fast/uTS25_Fontana/redshift_zero_folder/",
         dataset_config={}
     )
     print(f"Number of batches: {len(train_loader)}")
