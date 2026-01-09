@@ -1,4 +1,4 @@
-from .trainer import Trainer
+# from .trainer import Trainer # (commented out as Tensorboard is not used in current setup)
 from .u_net import AttentionUNet
 from .diffusion_process import DiffusionModel
 from .gen_utils import (
@@ -7,4 +7,4 @@ from .gen_utils import (
     print_rank_0,
 )
 
-__all__ = [ "Trainer", "AttentionUNet", "DiffusionModel" ]
+__all__ = [ "AttentionUNet", "DiffusionModel" ]

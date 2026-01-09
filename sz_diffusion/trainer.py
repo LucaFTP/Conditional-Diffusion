@@ -20,7 +20,7 @@ class Trainer:
         diffusion_model: DiffusionModel,
         folder: str,
         model_name: str,
-        dataset_config: dict,
+        config_file: dict,
         local_rank: int,
         *,
         train_lr: float = 1e-4,
@@ -44,9 +44,13 @@ class Trainer:
         
         self.opt = AdamW(self.d_model.parameters(), lr=train_lr, betas=adam_betas)
 
+        self.unet_config = config_file.get("unet_config")
+        self.dataset_config = config_file.get("dataset_config")
+        self.diffusion_config = config_file.get("diffusion_config")
+
         self.ds, self.dl_sampler, self.dl = create_dataloader(
             root_dir=folder,
-            dataset_config=dataset_config
+            dataset_config=self.dataset_config
         )
         
         self.start_epoch = 1
@@ -76,6 +80,11 @@ class Trainer:
             "opt": self.opt.state_dict(),
             "ema": self.ema.state_dict(),
             "version": "1.0",
+
+            # Configuration for reproducibility
+            "unet_config": self.unet_config,
+            "diffusion_config": self.diffusion_config,
+            "dataset_config": self.dataset_config,
         }
         torch.save(data, str(self.checkpoint_folder / f"model-{milestone}.pt"))
 

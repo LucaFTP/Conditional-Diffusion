@@ -76,7 +76,7 @@ def main(command_line_args: Namespace) -> None:
         diffusion_model=diffusion_model,
         folder="/leonardo_scratch/fast/uTS25_Fontana/redshift_zero_folder/",
         model_name=config_file.get("model_name"),
-        dataset_config=dataset_config,
+        config_file=config_file,
         local_rank=local_rank,
         train_lr=trainer_config.get("train_lr"),
         total_epochs=trainer_config.get("total_epochs"),

@@ -119,6 +119,53 @@ class DiffusionModel(nn.Module):
             )
             noise = torch.randn_like(x)
             return predicted_mean + torch.sqrt(posterior_variance) * noise
+        
+    @classmethod
+    def from_pretrained(cls, checkpoint_path, device='cpu', use_ema=True):
+
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+        
+        unet_config = checkpoint.get('unet_config')
+        dataset_config = checkpoint.get('dataset_config')
+        diffusion_config = checkpoint.get('diffusion_config')
+        
+        if unet_config is None or diffusion_config is None:
+            raise ValueError("Checkpoint missing configurations.")
+        
+        from ema_pytorch import EMA
+        from sz_diffusion.u_net import AttentionUNet
+
+        unet = AttentionUNet(
+            dim=unet_config.get("input"),
+            channels=unet_config.get("channels"),
+            dim_mults=tuple(unet_config.get("dim_mults")),
+        )
+        
+        diffusion_instance = cls(
+            model=unet,
+            image_size=dataset_config.get("image_size"),
+            beta_scheduler=diffusion_config.get("betas_scheduler"),
+            timesteps=diffusion_config.get("timesteps"),
+            auto_normalize=diffusion_config.get("auto_normalize"),
+        ).to(device)
+
+        if use_ema and 'ema' in checkpoint:
+            print("Loading EMA weights into the model...")
+            # Using a temporary EMA instance to load the weights
+            # in order to use the DiffusionModel class structure
+            # for inference.
+            ema_temp = EMA(diffusion_instance, beta=0.995)
+            ema_temp.load_state_dict(checkpoint['ema'])
+            diffusion_instance.model.load_state_dict(ema_temp.ema_model.model.state_dict())
+            
+            del ema_temp
+        else:
+            print("Loading standard training weights...")
+            diffusion_instance.model.load_state_dict(checkpoint['model'])\
+        
+        diffusion_instance.dataset_config = dataset_config
+        
+        return diffusion_instance
 
     @torch.inference_mode()
     def p_sample_loop(
@@ -169,7 +216,6 @@ class DiffusionModel(nn.Module):
 
         # x0 and derivative prediction
         x0_pred = (x - torch.sqrt(1 - at) * eps) / torch.sqrt(at)
-        # d_cur = (torch.sqrt(1 - at) * eps) / torch.sqrt(at)
 
         if order == 1 or s == 0:
             # DPM-Solver-1
@@ -216,7 +262,6 @@ class DiffusionModel(nn.Module):
             (batch, 1, 1, 1), dtype=torch.float32, device=device
             ) * (15.2 - 13.8) + 13.8 )
 
-        # scegli step in log-space (più stabili per cosine/sigmoid)
         seq = torch.linspace(0, self.num_timesteps-1, steps, dtype=int)
         seq = list(reversed(seq))
 

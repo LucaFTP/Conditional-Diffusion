@@ -13,8 +13,9 @@ setup(
         "numpy",
         "tqdm",
         "matplotlib",
-        "scipy",
-        "einops"
+        "einops",
+        # "tensorboard",    # Uncomment if tensorboard is needed. Currently used only for logging the training process,
+                            # which is not included for this setup.
     ],
     python_requires=">=3.8",
 )
