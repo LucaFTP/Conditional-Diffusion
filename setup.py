@@ -14,6 +14,7 @@ setup(
         "tqdm",
         "matplotlib",
         "einops",
+        "pandas",
         # "tensorboard",    # Uncomment if tensorboard is needed. Currently used only for logging the training process,
                             # which is not included for this setup.
     ],
